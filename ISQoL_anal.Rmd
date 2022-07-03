@@ -1,0 +1,319 @@
+---
+title: "Impact of Insight on quality of life - analysis (Step 2G onwards)"
+author: "Guillaume Barbalat"
+date: "1/6/2022"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 2
+    code_download: true
+---
+
+
+# load packages
+```{r warning=FALSE, message=FALSE, eval=TRUE, echo=FALSE, results=FALSE}
+
+# Prelude- Clean data and Load packages
+#first run Decipher_PEC.R script
+close.screen(all=TRUE)
+rm(list=ls())
+header=1;
+
+library(SuperLearner)
+library(tmle)
+library(earth)
+library(glmnet)
+library(hal9001)
+library(xgboost)
+library(dplyr)
+```
+
+# load data, remove missing data
+```{r echo=FALSE, eval=TRUE, warning=FALSE, message=FALSE}
+load(file="mat_A_W_ISQoL.RData") 
+
+#Not Dummy for table1
+mat_A_W_Table1 <- mat_A_W %>% 
+  dplyr::select(c(A,
+    Age,Sex,Education,Employment,CENTRE,
+    RQTH,Fam,Adresseur,Marginalisation,Forensic,
+    Dx,Dx2,Dx_SOMA,Addictions,
+    GAF,CGI,
+    First_Contact,N_Admissions,
+    
+    SQoL18_SEL:SQoL18_TOT,
+    WEMWBS_TOT,
+    ISMI_TOT,
+    IS_TOT,
+    STORI)) %>%
+  filter(Dx=="SCZ" & !is.na(A))%>%
+  as.data.frame(stringsAsFactors = TRUE) 
+
+
+
+#alldum with NA
+#SL_data_MHC <- mat_A_W_rd_PEC_6dx_MHC_alldum_NA
+
+#dum without linear, completed cases
+#SL_data_cc_MHC <- mat_A_W_rd_PEC_6dx_MHC_alldum_cc[complete.cases(mat_A_W_rd_PEC_6dx_MHC_alldum_cc),]
+
+#dum with linear, completed cases
+#SL_data_cc_MHC_linear <- mat_A_W_rd_PEC_6dx_MHC_linear_cc[complete.cases(mat_A_W_rd_PEC_6dx_MHC_linear_cc),]
+```
+
+# Missing data
+```{r eval=TRUE, echo=FALSE, warning=FALSE, message=FALSE}
+
+#Percentage of missing data per observation
+missing_per_row = data.frame(StudySubjectID=mat_A_W_Table1$Study.Subject.ID,
+                             pct_miss=rowSums(is.na(mat_A_W_Table1))/length(mat_A_W_Table1))
+
+hist(missing_per_row$pct_miss)
+
+#select everything(ends_with("_NA"))
+NA_dum <- mat_A_W_alldum_NA %>%
+  filter(Dx_SCZ==1 & IS_TOT_NA==0) %>%
+  select(ends_with("_NA"))
+
+#function to find the mode
+find_mode <- function(x) {
+  u <- unique(x)
+  tab <- tabulate(match(x, u))
+  u[tab == max(tab)]
+}
+
+#replace NA by median and mode, then cbind NA_dum (sl3 package strategy)
+tmp<-mat_A_W_Table1 %>%
+
+  group_by() %>%
+  mutate(across(where(is.numeric),
+                ~case_when(!is.na(.x)~as.numeric(.x),
+                           is.na(.x)~as.numeric(median(.,na.rm=TRUE)))
+                ),
+         across(where(is.factor),
+                ~case_when(!is.na(.x)~as.factor(.x),
+                           is.na(.x)~factor(find_mode(.))
+                           )
+                )
+  ) %>%
+  cbind(NA_dum)
+  
+# take out subj who miss a lot of data
+# who_miss_50=filter(missing_per_row,round(pct_miss,1)>=0.5)
+# who_miss_40=filter(missing_per_row,round(pct_miss,1)>=0.4)
+# who_miss_30=filter(missing_per_row,round(pct_miss,1)>=0.3)
+# who_miss_20=filter(missing_per_row,round(pct_miss,1)>=0.2)
+# who_miss_10=filter(missing_per_row,round(pct_miss,1)>=0.1)
+# 
+# SL_data_50_MHC<-anti_join(SL_data_MHC,who_miss_50,by="StudySubjectID") 
+# SL_data_40_MHC<-anti_join(SL_data_MHC,who_miss_40,by="StudySubjectID") 
+# SL_data_30_MHC<-anti_join(SL_data_MHC,who_miss_30,by="StudySubjectID") 
+# SL_data_20_MHC<-anti_join(SL_data_MHC,who_miss_20,by="StudySubjectID") 
+# SL_data_10_MHC<-anti_join(SL_data_MHC,who_miss_10,by="StudySubjectID") 
+# 
+```
+
+# Step 2G- Univariate and Bivariate analysis aka Table 1
+```{r warning=FALSE, message=FALSE, echo=FALSE}
+Table1_data <- mat_A_W_Table1 %>%
+  select(-Study.Subject.ID)
+###############
+library(table1)
+my.render.cont <- function(x) {
+    with(stats.default(x), 
+         sprintf("%0.2f (%0.1f)", MEAN, SD))
+}
+
+
+pvalue <- function(x, ...) {
+    # Construct vectors of data y, and groups (strata) g
+    y <- unlist(x)
+    g <- factor(rep(1:length(x), times=sapply(x, length)))
+    if (is.numeric(y)) {
+        # For numeric variables, perform a standard 2-sample t-test
+        p <- t.test(y ~ g)$p.value
+    } else {
+        # For categorical variables, perform a chi-squared test of independence
+        p <- chisq.test(table(y, g))$p.value
+    }
+    # Format the p-value, using an HTML entity for the less-than sign.
+    # The initial empty string places the output on the line below the variable label.
+    c("", sub("<", "&lt;", format.pval(p, digits=3, eps=0.001)))
+}
+
+table1(~ .
+       | A,
+       data=Table1_data,  
+       rowlabelhead = "Variables",
+       overall=F, extra.col=list(`P-value`=pvalue)
+       #,render.continuous=my.render.cont
+       )
+
+###############
+```
+
+
+# Steps 3- Specify the counterfactuals and the causal parameter of interest (e.g. ATE, MSM, MTP ...)
+
+$$\theta^*_{ATE}=E[Y_{A=1}]-E[Y_{A=0}]$$
+$$E[Y]=m(\beta|A,V)=\beta_0+\beta_1A+\beta_2V+\beta_3A*V$$
+
+
+# Step 4- Identify (backdoor path and positivity - gross analysis, otherwise see Step 6A)
+
+strong strong temporality issues  
+checking positivity assumptions post-hoc  
+
+
+# Step 5-  Statistical strategy (e.g. G methods, best fit using SL etc ... Which R packages and functions)  
+
+causal-ish question ... G methods using tmle (doubly-robust estimators).  
+`tmle` package for an ATE  
+`causalglm` and other `tmle3` functions  
+
+# Step 6A- Estimate(main arguments)
+
+Complete.Cases vs. strategy for missing values  
+Raw measures vs. dummyfications  
+V=10 N btw 500 and 1000  
+binary A (IS cutoff = 9)  
+continuous Y???  
+SL algorithms: LASSO, MARS, step, stepIA, mean (benchmark), randomForest, xgboost, ...  
+Use `caret` and `tmle3`  
+
+## Other algorithms
+```{r echo=FALSE, eval=FALSE}
+listWrappers()
+
+SL.hal9001<- function (Y, X, newX = NULL, family = "gaussian",
+                       obsWeights = rep(1, length(Y)), id = NULL, max_degree = ifelse(ncol(X) >= 20,2, 3),
+                       smoothness_orders = 1, num_knots = ifelse(smoothness_orders >= 1, 25, 50),
+                       reduce_basis = 1/sqrt(length(Y)), lambda = NULL,
+                       ...)
+{
+  if (!is.matrix(X))
+    X <- as.matrix(X)
+  if (!is.null(newX) & !is.matrix(newX))
+    newX <- as.matrix(newX)
+  hal_fit <- fit_hal(X = X, Y = Y, family = family$family,
+                     fit_control = list(weights = obsWeights), id = id, max_degree = max_degree,
+                     smoothness_orders = smoothness_orders, num_knots = num_knots,
+                     reduce_basis = reduce_basis, lambda = lambda)
+  if (!is.null(newX)) {
+    pred <- stats::predict(hal_fit, new_data = newX)
+  }
+  else {
+    pred <- stats::predict(hal_fit, new_data = X)
+  }
+  fit <- list(object = hal_fit)
+  #class(fit) <- "SL.hal9001"
+  out <- list(pred = pred, fit = fit)
+  return(out)
+}
+
+SL.step_IA_glmnet <- function (Y, X, newX, family="gaussian", direction = "backward", trace = 0,
+                        k = 2, ...)
+{
+   whichVarialbes <- screen.glmnet(Y,X, family="gaussian")#returns logical vector
+   
+  fit.glm <- glm(Y ~ ., data = X[,whichVarialbes], family = "gaussian")
+  fit.stepMain <- step(fit.glm, direction = direction)
+
+  fit.step <- step(fit.stepMain, scope = Y ~ .^2, direction = direction,
+                   trace = trace, k = k)
+  pred <- predict(fit.step, newdata = newX, type = "response")
+  fit <- list(object = fit.step)
+  out <- list(pred = pred, fit = fit)
+  class(out$fit) <- c("SL.step")
+  return(out)
+}
+```
+
+## ATE
+``` {r}
+SL.library.A=c("SL.glm","SL.glmnet","SL.earth","SL.ranger")
+SL.library.Y=list("SL.glm","SL.glmnet","SL.ranger","SL.earth")#,"SL.hal9001","SL.step_IA_glmnet")
+
+mat_Y_A_W=select(mat_A_W_Table1,c(Age,Sex,Education, Employment, RQTH, Fam, Marginalisation, Forensic, Addictions, First_Contact, A, starts_with("SQoL18")))
+mat_Y_A_W=mat_Y_A_W[complete.cases(mat_Y_A_W),]
+
+A=as.numeric(mat_Y_A_W$A)
+W=select(mat_Y_A_W,-c(starts_with("SQoL18"),A))
+W<-W %>%
+  mutate(across(everything(.),~as.numeric(.)))
+
+#summary(lm(SQoL18_TOT~., data=mat_Y_A_W))
+run_tmle <- function(Y) {
+
+result <- tmle(Y,A,W,
+     Q.SL.library=SL.library.Y ,
+     g.SL.library=SL.library.A ,
+     V=2,
+     family="gaussian")
+return(result)
+}
+results_ATE <- run_tmle(Y=mat_Y_A_W$SQoL18_TOT)
+# run_tmle(Y=mat_Y_A_W$SQoL18_AUT)
+# run_tmle(Y=mat_Y_A_W$SQoL18_RES)
+# run_tmle(Y=mat_Y_A_W$SQoL18_FAM)
+# run_tmle(Y=mat_Y_A_W$SQoL18_FRI)
+# run_tmle(Y=mat_Y_A_W$SQoL18_SEL)
+# run_tmle(Y=mat_Y_A_W$SQoL18_PSY)
+# run_tmle(Y=mat_Y_A_W$SQoL18_PHY)
+results_ATE
+```
+
+## Positivity
+```{r}
+
+summary(results_ATE$g$g1W)
+summary(sum(results_ATE$g$g1W)/results_ATE$g$g1W)
+
+hist(1/results_ATE$g$g1W)
+hist(
+  (1/results_ATE$g$g1W) /
+      sum( (1/results_ATE$g$g1W))
+  )
+
+
+```
+
+
+## MSM
+
+```{r}
+A=as.numeric(mat_Y_A_W$A)
+
+W<-W %>%
+  mutate(across(everything(.),~as.numeric(.)))
+V<-mat_Y_A_W %>%
+  select(SQoL18_SEL) %>%
+  # mutate(across(starts_with("SQoL18"),~cut(.x, breaks=2,include.lowest=TRUE, ordered_result = TRUE, labels=c(1,0)))) %>%
+  # mutate(across(starts_with("SQoL18"),~as.numeric(.)))
+  mutate(SQoL18_SEL=cut(SQoL18_SEL, breaks=2,include.lowest=TRUE, ordered_result = TRUE, labels=c(0,1))) 
+V <- as.numeric(as.matrix(V))
+
+Y=mat_Y_A_W$SQoL18_TOT
+
+results_MSM <- tmleMSM(Y, A, W, V, 
+        MSM="A*V",
+        T = rep(1,length(Y)), Delta = rep(1, length(Y)), 
+        v = NULL, Q = NULL, Qform = NULL, Qbounds = c(-Inf, Inf), 
+        Q.SL.library = SL.library.Y, g.SL.library = SL.library.A,
+        cvQinit = TRUE, hAV = NULL, hAVform = NULL, g1W = NULL, 
+        gform = NULL, pDelta1 = NULL, g.Deltaform = NULL, 
+        ub = 1/0.025, family = "gaussian", fluctuation = "logistic", 
+        alpha  = 0.995, id = 1:length(Y), V_SL = 5, inference = TRUE, 
+        verbose = TRUE, Q.discreteSL = FALSE, g.discreteSL = FALSE) 
+
+results_MSM
+hist(1/results_MSM$g$g1W)
+hist(results_MSM$g.AV$g1W/results_MSM$g$g1W)
+
+
+```
+
+
+# Step 6B- Sensitivity analysis (wt, Y, subset, A, NA, IA)
+
