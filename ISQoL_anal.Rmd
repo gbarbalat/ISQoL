@@ -253,15 +253,17 @@ result <- tmle(Y,A,W,
      family="gaussian")
 return(result)
 }
-results_ATE <- run_tmle(Y=mat_Y_A_W$SQoL18_TOT)
-# run_tmle(Y=mat_Y_A_W$SQoL18_AUT)
-# run_tmle(Y=mat_Y_A_W$SQoL18_RES)
-# run_tmle(Y=mat_Y_A_W$SQoL18_FAM)
-# run_tmle(Y=mat_Y_A_W$SQoL18_FRI)
-# run_tmle(Y=mat_Y_A_W$SQoL18_SEL)
-# run_tmle(Y=mat_Y_A_W$SQoL18_PSY)
-# run_tmle(Y=mat_Y_A_W$SQoL18_PHY)
-results_ATE
+#results_ATE <- run_tmle(Y=mat_Y_A_W$SQoL18_TOT)
+AUT <- run_tmle(Y=mat_Y_A_W$SQoL18_AUT)
+RES <- run_tmle(Y=mat_Y_A_W$SQoL18_RES)
+FAM <- run_tmle(Y=mat_Y_A_W$SQoL18_FAM)
+FRI <- run_tmle(Y=mat_Y_A_W$SQoL18_FRI)
+SEL <- run_tmle(Y=mat_Y_A_W$SQoL18_SEL)
+PSY <- run_tmle(Y=mat_Y_A_W$SQoL18_PSY)
+PHY <- run_tmle(Y=mat_Y_A_W$SQoL18_PHY)
+ROM <- run_tmle(Y=mat_Y_A_W$SQoL18_ROM)
+
+#results_ATE
 ```
 
 ## Positivity
@@ -317,3 +319,196 @@ hist(results_MSM$g.AV$g1W/results_MSM$g$g1W)
 
 # Step 6B- Sensitivity analysis (wt, Y, subset, A, NA, IA)
 
+
+# Network analysis
+
+```{r}
+library(qgraph)
+library(huge)
+library(bootnet)
+library(NetworkComparisonTest)
+
+#Rough network
+SEL_IS1=mat_Y_A_W$SQoL18_SEL;ROM_IS1=mat_Y_A_W$SQoL18_ROM;PHY_IS1=mat_Y_A_W$SQoL18_PHY;
+PSY_IS1=mat_Y_A_W$SQoL18_PSY;RES_IS1=mat_Y_A_W$SQoL18_RES;AUT_IS1=mat_Y_A_W$SQoL18_AUT;
+FRI_IS1=mat_Y_A_W$SQoL18_FRI;FAM_IS1=mat_Y_A_W$SQoL18_FAM;
+Network_df_IS1=data.frame(SEL_IS1,RES_IS1,AUT_IS1,PHY_IS1,FAM_IS1,FRI_IS1,ROM_IS1,PSY_IS1)
+CorMat_IS1=cor_auto(Network_df_IS1, npn.SKEPTIC = FALSE)
+Q_IS1=qgraph(CorMat_IS1, graph = "glasso", sampleSize = nrow(Network_df_IS1),
+         tuning =0.5, layout = "circle", title = "BIC", details = TRUE,
+         threshold=TRUE)
+C_IS1=centralityPlot(Q_IS1);
+
+#comparing network function
+network_first_anal <- function(Network_df_IS1,Network_df_IS0,npn.SKEPTIC) {
+  ##########
+  #CorMat=cor_auto(select(Network_df,!id))
+  ##########
+  CorMat_IS1=cor_auto(Network_df_IS1, npn.SKEPTIC=npn.SKEPTIC)
+  CorMat_IS0=cor_auto(Network_df_IS0, npn.SKEPTIC=npn.SKEPTIC)
+
+  
+  #The glasso is run for 100 values of the tuning parameter logarithmically spaced between the maximal value of 
+  #the tuning parameter at which all edges are zero, lamba_max, and lambda_max/100. 
+  #For each of these graphs the EBIC is computed and the graph with the best EBIC is selected.
+  #The partial correlation matrix is computed using wi2net and returned.
+  
+  #BICgraph <- EBICglasso(S=CorMat, n=nrow(Network_df), gamma=0, threshold = TRUE)#BIC
+  Q_IS1=qgraph(CorMat_IS1, graph = "glasso", sampleSize = nrow(Network_df_IS1),
+         tuning =0.5, layout = "circle", title = "BIC", details = TRUE,
+         threshold=TRUE)
+  C_IS1=centralityPlot(Q_IS1);#centralityTable(Q)
+  
+  Q_IS0=qgraph(CorMat_IS0, graph = "glasso", sampleSize = nrow(Network_df_IS0),
+         tuning =0.5, layout = "circle", title = "BIC", details = TRUE, threshold=TRUE)
+  C_IS0=centralityPlot(Q_IS0);#centralityTable(Q)
+  
+  
+  #comparing networks
+  colnames(Network_df_IS1)=c("SEL_IS0", "RES_IS0", "AUT_IS0", "PHY_IS0", "FAM_IS0", "FRI_IS0", "ROM_IS0", "PSY_IS0")
+    
+    ##Network comparison test
+    testing_NCT <- NCT(Network_df_IS1,Network_df_IS0,
+                       gamma = 0.5, it= 1000, binary.data=FALSE, 
+      paired=FALSE, weighted=TRUE, AND=TRUE, abs=TRUE,
+      test.edges=FALSE, edges="all", 
+      progressbar=TRUE, make.positive.definite=TRUE,
+      p.adjust.methods="fdr", #c("none","holm","hochberg","hommel",
+                        #  "bonferroni","BH","BY","fdr"), 
+      test.centrality=TRUE, 
+      centrality=c("strength","expectedInfluence"),nodes="all",
+      communities=NULL,useCommunities="all",
+      #estimator, estimatorArgs = list(), 
+      verbose = TRUE
+      )
+    
+  
+  return(list(Q_IS1,C_IS1,Q_IS0,C_IS0,testing_NCT))
+}
+
+#Rough network IS1 vs. IS0
+SEL_IS1=mat_Y_A_W$SQoL18_SEL[mat_Y_A_W$A==1];
+ROM_IS1=mat_Y_A_W$SQoL18_ROM[mat_Y_A_W$A==1];
+PHY_IS1=mat_Y_A_W$SQoL18_PHY[mat_Y_A_W$A==1];
+PSY_IS1=mat_Y_A_W$SQoL18_PSY[mat_Y_A_W$A==1];
+RES_IS1=mat_Y_A_W$SQoL18_RES[mat_Y_A_W$A==1];
+AUT_IS1=mat_Y_A_W$SQoL18_AUT[mat_Y_A_W$A==1];
+FRI_IS1=mat_Y_A_W$SQoL18_FRI[mat_Y_A_W$A==1];
+FAM_IS1=mat_Y_A_W$SQoL18_FAM[mat_Y_A_W$A==1];
+Network_df_IS1=data.frame(SEL_IS1,RES_IS1,AUT_IS1,PHY_IS1,FAM_IS1,FRI_IS1,ROM_IS1,PSY_IS1)
+
+SEL_IS0=mat_Y_A_W$SQoL18_SEL[mat_Y_A_W$A==0];
+ROM_IS0=mat_Y_A_W$SQoL18_ROM[mat_Y_A_W$A==0];
+PHY_IS0=mat_Y_A_W$SQoL18_PHY[mat_Y_A_W$A==0];
+PSY_IS0=mat_Y_A_W$SQoL18_PSY[mat_Y_A_W$A==0];
+RES_IS0=mat_Y_A_W$SQoL18_RES[mat_Y_A_W$A==0];
+AUT_IS0=mat_Y_A_W$SQoL18_AUT[mat_Y_A_W$A==0];
+FRI_IS0=mat_Y_A_W$SQoL18_FRI[mat_Y_A_W$A==0];
+FAM_IS0=mat_Y_A_W$SQoL18_FAM[mat_Y_A_W$A==0];
+Network_df_IS0=data.frame(SEL_IS0,RES_IS0,AUT_IS0,PHY_IS0,FAM_IS0,FRI_IS0,ROM_IS0,PSY_IS0)
+
+rough <- network_first_anal(Network_df_IS1 = Network_df_IS1,Network_df_IS0 = Network_df_IS0, npn.SKEPTIC = FALSE)
+
+
+#IPW transf
+SEL_IS1=mat_Y_A_W$SQoL18_SEL[mat_Y_A_W$A==1]*SEL$g$g1W[mat_Y_A_W$A==1];
+ROM_IS1=mat_Y_A_W$SQoL18_ROM[mat_Y_A_W$A==1]*ROM$g$g1W[mat_Y_A_W$A==1];
+PHY_IS1=mat_Y_A_W$SQoL18_PHY[mat_Y_A_W$A==1]*PHY$g$g1W[mat_Y_A_W$A==1];
+PSY_IS1=mat_Y_A_W$SQoL18_PSY[mat_Y_A_W$A==1]*PSY$g$g1W[mat_Y_A_W$A==1];
+RES_IS1=mat_Y_A_W$SQoL18_RES[mat_Y_A_W$A==1]*RES$g$g1W[mat_Y_A_W$A==1];
+AUT_IS1=mat_Y_A_W$SQoL18_AUT[mat_Y_A_W$A==1]*AUT$g$g1W[mat_Y_A_W$A==1];
+FRI_IS1=mat_Y_A_W$SQoL18_FRI[mat_Y_A_W$A==1]*FRI$g$g1W[mat_Y_A_W$A==1];
+FAM_IS1=mat_Y_A_W$SQoL18_FAM[mat_Y_A_W$A==1]*FAM$g$g1W[mat_Y_A_W$A==1];
+Network_df_IS1=data.frame(SEL_IS1,RES_IS1,AUT_IS1,PHY_IS1,FAM_IS1,FRI_IS1,ROM_IS1,PSY_IS1)
+
+SEL_IS0=mat_Y_A_W$SQoL18_SEL[mat_Y_A_W$A==0]*SEL$g$g1W[mat_Y_A_W$A==0];
+ROM_IS0=mat_Y_A_W$SQoL18_ROM[mat_Y_A_W$A==0]*ROM$g$g1W[mat_Y_A_W$A==0];
+PHY_IS0=mat_Y_A_W$SQoL18_PHY[mat_Y_A_W$A==0]*PHY$g$g1W[mat_Y_A_W$A==0];
+PSY_IS0=mat_Y_A_W$SQoL18_PSY[mat_Y_A_W$A==0]*PSY$g$g1W[mat_Y_A_W$A==0];
+RES_IS0=mat_Y_A_W$SQoL18_RES[mat_Y_A_W$A==0]*RES$g$g1W[mat_Y_A_W$A==0];
+AUT_IS0=mat_Y_A_W$SQoL18_AUT[mat_Y_A_W$A==0]*AUT$g$g1W[mat_Y_A_W$A==0];
+FRI_IS0=mat_Y_A_W$SQoL18_FRI[mat_Y_A_W$A==0]*FRI$g$g1W[mat_Y_A_W$A==0];
+FAM_IS0=mat_Y_A_W$SQoL18_FAM[mat_Y_A_W$A==0]*FAM$g$g1W[mat_Y_A_W$A==0];
+Network_df_IS0=data.frame(SEL_IS0,RES_IS0,AUT_IS0,PHY_IS0,FAM_IS0,FRI_IS0,ROM_IS0,PSY_IS0)
+
+i_p_w <- network_first_anal(Network_df_IS1 = Network_df_IS1,Network_df_IS0 = Network_df_IS0, npn.SKEPTIC = TRUE)
+
+#Gcomp transf, not updating the initial estimation
+SEL_IS1=SEL$Qinit$Q[,2];ROM_IS1=ROM$Qinit$Q[,2];PHY_IS1=PHY$Qinit$Q[,2];PSY_IS1=PSY$Qinit$Q[,2];
+RES_IS1=RES$Qinit$Q[,2];AUT_IS1=AUT$Qinit$Q[,2];FRI_IS1=FRI$Qinit$Q[,2];FAM_IS1=FAM$Qinit$Q[,2];
+Network_df_IS1=data.frame(SEL_IS1,RES_IS1,AUT_IS1,PHY_IS1,FAM_IS1,FRI_IS1,ROM_IS1,PSY_IS1)
+
+SEL_IS0=SEL$Qinit$Q[,1];ROM_IS0=ROM$Qinit$Q[,1];PHY_IS0=PHY$Qinit$Q[,1];PSY_IS0=PSY$Qinit$Q[,1];
+RES_IS0=RES$Qinit$Q[,1];AUT_IS0=AUT$Qinit$Q[,1];FRI_IS0=FRI$Qinit$Q[,1];FAM_IS0=FAM$Qinit$Q[,1];
+Network_df_IS0=data.frame(SEL_IS0,RES_IS0,AUT_IS0,PHY_IS0,FAM_IS0,FRI_IS0,ROM_IS0,PSY_IS0)
+
+g_comp <- network_first_anal(Network_df_IS1 = Network_df_IS1,Network_df_IS0 = Network_df_IS0, npn.SKEPTIC = TRUE)
+
+#Ditto updating the initial estimation
+SEL_IS1=SEL$Qstar[,2];ROM_IS1=ROM$Qstar[,2];PHY_IS1=PHY$Qstar[,2];PSY_IS1=PSY$Qstar[,2];
+RES_IS1=RES$Qstar[,2];AUT_IS1=AUT$Qstar[,2];FRI_IS1=FRI$Qstar[,2];FAM_IS1=FAM$Qstar[,2];
+Network_df_IS1=data.frame(SEL_IS1,RES_IS1,AUT_IS1,PHY_IS1,FAM_IS1,FRI_IS1,ROM_IS1,PSY_IS1)
+
+SEL_IS0=SEL$Qstar[,1];ROM_IS0=ROM$Qstar[,1];PHY_IS0=PHY$Qstar[,1];PSY_IS0=PSY$Qstar[,1];
+RES_IS0=RES$Qstar[,1];AUT_IS0=AUT$Qstar[,1];FRI_IS0=FRI$Qstar[,1];FAM_IS0=FAM$Qstar[,1];
+Network_df_IS0=data.frame(SEL_IS0,RES_IS0,AUT_IS0,PHY_IS0,FAM_IS0,FRI_IS0,ROM_IS0,PSY_IS0)
+  
+t_m_l_e <- network_first_anal(Network_df_IS1 = Network_df_IS1,Network_df_IS0 = Network_df_IS0, npn.SKEPTIC = TRUE)
+
+
+
+  
+    Network_<-bootnet::estimateNetwork(Network_df_IS1, default = "EBICglasso", tuning=0.5)
+    
+    ##########
+    #stability of centrality indices
+    ##########
+    boot2 <- bootnet(Network, nBoots = 1000, type = "case", nCores = 8, 
+                   statistics = c("strength", "closeness", "betweenness"))
+    print(plot(boot2, statistics = c("betweenness", "closeness", "strength"), order = "id",
+               onlyNonZero = FALSE))
+  
+    print(corStability(boot2))
+  
+    ##########
+    #CI of edge-weight
+    ##########
+    boot1<-bootnet(Network, nBoots = 1000, nCores = 8)
+    print(plot(boot1, labels = TRUE, order = "id", onlyNonZero = FALSE))#order="sample"
+    
+    ##########
+    #testing for significant differences
+    ##########
+    ##edge-weight
+    EW_PLOT=plot(boot1, "edge", plot = "difference", onlyNonZero = FALSE, order = "id")
+    print(EW_PLOT)
+    EW_PLOT$data$upper_lower=ifelse(EW_PLOT$data$lower>0 & EW_PLOT$data$upper>0,1,0)
+    tmp=tapply(EW_PLOT$data$upper_lower,
+           EW_PLOT$data$id2, 
+           function(x) sum(x>0))
+    Quantif_EW_SUP=data.frame(edge_name=names(tmp), 
+                            n_edge=tmp)
+  
+    ##centrality
+    #differenceTest(boot1, 3, 8, "strength")
+    print(plot(boot1, "strength",order = "id",onlyNonZero = FALSE))
+    
+    
+    colnames(Network_df_IS1)=c("SEL_IS0", "RES_IS0", "AUT_IS0", "PHY_IS0", "FAM_IS0", "FRI_IS0", "ROM_IS0", "PSY_IS0")
+    
+    ##Network comparison test
+    testing_NCT <- NCT(Network_df_IS1,Network_df_IS0,
+                       gamma = 0.5, it= 100, binary.data=FALSE, 
+      paired=FALSE, weighted=TRUE, AND=TRUE, abs=TRUE,
+      test.edges=FALSE, edges="all", 
+      progressbar=TRUE, make.positive.definite=TRUE,
+      p.adjust.methods="fdr", #c("none","holm","hochberg","hommel",
+                        #  "bonferroni","BH","BY","fdr"), 
+      test.centrality=TRUE, 
+      centrality=c("strength","expectedInfluence"),nodes="all",
+      communities=NULL,useCommunities="all",
+      #estimator, estimatorArgs = list(), 
+      verbose = TRUE
+      )
+    
+```
