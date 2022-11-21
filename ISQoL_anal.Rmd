@@ -24,7 +24,6 @@ library(SuperLearner)
 library(tmle)
 library(earth)
 library(glmnet)
-library(hal9001)
 library(xgboost)
 library(dplyr)
 ```
@@ -35,9 +34,9 @@ load(file="mat_A_W_ISQoL.RData")
 
 #Not Dummy for table1
 mat_A_W_Table1 <- mat_A_W %>% 
-  dplyr::select(c(A,
-    Age,Sex,Education,Employment,CENTRE,
-    RQTH,Fam,Adresseur,Marginalisation,Forensic,
+  dplyr::select(c(Study.Subject.ID,A,
+    Age,Sex,Education,CENTRE,#Employment,Adresseur,
+    RQTH,Fam,Marginalisation,Forensic,
     Dx,Dx2,Dx_SOMA,Addictions,
     GAF,CGI,
     First_Contact,N_Admissions,
@@ -46,6 +45,7 @@ mat_A_W_Table1 <- mat_A_W %>%
     WEMWBS_TOT,
     ISMI_TOT,
     IS_TOT,
+    SERS_TOT,
     STORI)) %>%
   filter(Dx=="SCZ" & !is.na(A))%>%
   as.data.frame(stringsAsFactors = TRUE) 
@@ -63,7 +63,7 @@ mat_A_W_Table1 <- mat_A_W %>%
 ```
 
 # Missing data
-```{r eval=TRUE, echo=FALSE, warning=FALSE, message=FALSE}
+```{r eval=FALSE, echo=FALSE, warning=FALSE, message=FALSE}
 
 #Percentage of missing data per observation
 missing_per_row = data.frame(StudySubjectID=mat_A_W_Table1$Study.Subject.ID,
@@ -116,8 +116,9 @@ tmp<-mat_A_W_Table1 %>%
 
 # Step 2G- Univariate and Bivariate analysis aka Table 1
 ```{r warning=FALSE, message=FALSE, echo=FALSE}
-Table1_data <- mat_A_W_Table1 %>%
-  select(-Study.Subject.ID)
+#Table1_data <- mat_A_W_Table1[complete.cases(mat_A_W_Table1),]
+Table1_data <- dplyr::select(mat_A_W_Table1,-Study.Subject.ID)
+  
 ###############
 library(table1)
 my.render.cont <- function(x) {
@@ -235,11 +236,12 @@ SL.step_IA_glmnet <- function (Y, X, newX, family="gaussian", direction = "backw
 SL.library.A=c("SL.glm","SL.glmnet","SL.earth","SL.ranger")
 SL.library.Y=list("SL.glm","SL.glmnet","SL.ranger","SL.earth")#,"SL.hal9001","SL.step_IA_glmnet")
 
-mat_Y_A_W=select(mat_A_W_Table1,c(Age,Sex,Education, Employment, RQTH, Fam, Marginalisation, Forensic, Addictions, First_Contact, A, starts_with("SQoL18")))
+mat_Y_A_W=select(mat_A_W_Table1,-c(CENTRE,Dx,IS_TOT))
 mat_Y_A_W=mat_Y_A_W[complete.cases(mat_Y_A_W),]
 
 A=as.numeric(mat_Y_A_W$A)
-W=select(mat_Y_A_W,-c(starts_with("SQoL18"),A))
+W=select(mat_Y_A_W,-c(starts_with("SQoL18"),A,
+                      WEMWBS_TOT,ISMI_TOT,SERS_TOT,STORI))
 W<-W %>%
   mutate(across(everything(.),~as.numeric(.)))
 
@@ -249,33 +251,33 @@ run_tmle <- function(Y) {
 result <- tmle(Y,A,W,
      Q.SL.library=SL.library.Y ,
      g.SL.library=SL.library.A ,
-     V=2,
+     V=5,
      family="gaussian")
 return(result)
 }
-#results_ATE <- run_tmle(Y=mat_Y_A_W$SQoL18_TOT)
-AUT <- run_tmle(Y=mat_Y_A_W$SQoL18_AUT)
-RES <- run_tmle(Y=mat_Y_A_W$SQoL18_RES)
-FAM <- run_tmle(Y=mat_Y_A_W$SQoL18_FAM)
-FRI <- run_tmle(Y=mat_Y_A_W$SQoL18_FRI)
-SEL <- run_tmle(Y=mat_Y_A_W$SQoL18_SEL)
-PSY <- run_tmle(Y=mat_Y_A_W$SQoL18_PSY)
-PHY <- run_tmle(Y=mat_Y_A_W$SQoL18_PHY)
-ROM <- run_tmle(Y=mat_Y_A_W$SQoL18_ROM)
+(results_TOT <- run_tmle(Y=mat_Y_A_W$SQoL18_TOT))
+(AUT <- run_tmle(Y=mat_Y_A_W$SQoL18_AUT))
+(RES <- run_tmle(Y=mat_Y_A_W$SQoL18_RES))
+(FAM <- run_tmle(Y=mat_Y_A_W$SQoL18_FAM))
+(FRI <- run_tmle(Y=mat_Y_A_W$SQoL18_FRI))
+(SEL <- run_tmle(Y=mat_Y_A_W$SQoL18_SEL))
+(PSY <- run_tmle(Y=mat_Y_A_W$SQoL18_PSY))
+(PHY <- run_tmle(Y=mat_Y_A_W$SQoL18_PHY))
+(ROM <- run_tmle(Y=mat_Y_A_W$SQoL18_ROM))
 
-#results_ATE
+
 ```
 
 ## Positivity
-```{r}
+```{r eval=FALSE}
 
-summary(results_ATE$g$g1W)
-summary(sum(results_ATE$g$g1W)/results_ATE$g$g1W)
+summary(results_TOT$g$g1W)
+summary(sum(results_TOT$g$g1W)/results_TOT$g$g1W)
 
-hist(1/results_ATE$g$g1W)
+hist(1/results_TOT$g$g1W)
 hist(
-  (1/results_ATE$g$g1W) /
-      sum( (1/results_ATE$g$g1W))
+  (1/results_TOT$g$g1W) /
+      sum( (1/results_TOT$g$g1W))
   )
 
 
@@ -285,15 +287,38 @@ hist(
 ## MSM
 
 ```{r}
+SL.library.A=c("SL.glm","SL.glmnet","SL.earth","SL.ranger")
+SL.library.Y=list("SL.glm","SL.glmnet","SL.ranger","SL.earth")#,"SL.hal9001","SL.step_IA_glmnet")
+
+mat_Y_A_W=select(mat_A_W_Table1,-c(CENTRE,Dx,IS_TOT))
+mat_Y_A_W=mat_Y_A_W[complete.cases(mat_Y_A_W),]
+#potential_moderators=c("WEMWBS_TOT","ISMI_TOT","SERS_TOT","STORI")
+W=select(mat_Y_A_W,-c(starts_with("SQoL18"),A,Study.Subject.ID))
+W=W %>%
+  mutate(across(everything(.),~as.numeric(.)))
+which_Z=c("WEMWBS_TOT","ISMI_TOT","SERS_TOT","STORI")
+potential_moderators=W %>%
+  select(-"STORI") %>%
+  colnames()
+
 A=as.numeric(mat_Y_A_W$A)
 
+moder_anal<-function(which_V, W) {
+  
+ 
+which_Z=c("WEMWBS_TOT","ISMI_TOT","SERS_TOT","STORI")
+which_Z=which_Z[!which_Z %in% which_V]# except if considered moderators
+
 W<-W %>%
+  select(-which_Z) %>%
   mutate(across(everything(.),~as.numeric(.)))
-V<-mat_Y_A_W %>%
-  select(SQoL18_SEL) %>%
+
+V<-W %>%
+  select(all_of(which_V)) %>%
+  rename(which_V=all_of(which_V)) #%>%
   # mutate(across(starts_with("SQoL18"),~cut(.x, breaks=2,include.lowest=TRUE, ordered_result = TRUE, labels=c(1,0)))) %>%
   # mutate(across(starts_with("SQoL18"),~as.numeric(.)))
-  mutate(SQoL18_SEL=cut(SQoL18_SEL, breaks=2,include.lowest=TRUE, ordered_result = TRUE, labels=c(0,1))) 
+  #mutate(which_V=cut(which_V, breaks=2,include.lowest=TRUE, ordered_result = TRUE, labels=c(0,1))) 
 V <- as.numeric(as.matrix(V))
 
 Y=mat_Y_A_W$SQoL18_TOT
@@ -308,10 +333,19 @@ results_MSM <- tmleMSM(Y, A, W, V,
         ub = 1/0.025, family = "gaussian", fluctuation = "logistic", 
         alpha  = 0.995, id = 1:length(Y), V_SL = 5, inference = TRUE, 
         verbose = TRUE, Q.discreteSL = FALSE, g.discreteSL = FALSE) 
+}
 
-results_MSM
-hist(1/results_MSM$g$g1W)
-hist(results_MSM$g.AV$g1W/results_MSM$g$g1W)
+
+for (i in (1:length(potential_moderators))) {
+  print(potential_moderators[i])
+  print(results_MSM <- moder_anal(which_V=potential_moderators[i],W))
+
+}
+#(results_MSM <- moder_anal("STORI_TOT")) need numeric V?
+
+#positivity assumption
+#hist(1/results_MSM$g$g1W)
+#hist(results_MSM$g.AV$g1W/results_MSM$g$g1W)
 
 
 ```
@@ -322,7 +356,7 @@ hist(results_MSM$g.AV$g1W/results_MSM$g$g1W)
 
 # Network analysis
 
-```{r}
+```{r echo=FALSE, eval=FALSE}
 library(qgraph)
 library(huge)
 library(bootnet)
@@ -463,52 +497,34 @@ t_m_l_e <- network_first_anal(Network_df_IS1 = Network_df_IS1,Network_df_IS0 = N
     ##########
     #stability of centrality indices
     ##########
-    boot2 <- bootnet(Network, nBoots = 1000, type = "case", nCores = 8, 
+    boot2 <- bootnet(Network_, nBoots = 100, type = "case", nCores = 8, 
                    statistics = c("strength", "closeness", "betweenness"))
     print(plot(boot2, statistics = c("betweenness", "closeness", "strength"), order = "id",
                onlyNonZero = FALSE))
   
     print(corStability(boot2))
   
-    ##########
-    #CI of edge-weight
-    ##########
-    boot1<-bootnet(Network, nBoots = 1000, nCores = 8)
-    print(plot(boot1, labels = TRUE, order = "id", onlyNonZero = FALSE))#order="sample"
+    # ##########
+    # #CI of edge-weight
+    # ##########
+    # boot1<-bootnet(Network, nBoots = 1000, nCores = 8)
+    # print(plot(boot1, labels = TRUE, order = "id", onlyNonZero = FALSE))#order="sample"
     
-    ##########
-    #testing for significant differences
-    ##########
-    ##edge-weight
-    EW_PLOT=plot(boot1, "edge", plot = "difference", onlyNonZero = FALSE, order = "id")
-    print(EW_PLOT)
-    EW_PLOT$data$upper_lower=ifelse(EW_PLOT$data$lower>0 & EW_PLOT$data$upper>0,1,0)
-    tmp=tapply(EW_PLOT$data$upper_lower,
-           EW_PLOT$data$id2, 
-           function(x) sum(x>0))
-    Quantif_EW_SUP=data.frame(edge_name=names(tmp), 
-                            n_edge=tmp)
-  
-    ##centrality
-    #differenceTest(boot1, 3, 8, "strength")
-    print(plot(boot1, "strength",order = "id",onlyNonZero = FALSE))
-    
-    
-    colnames(Network_df_IS1)=c("SEL_IS0", "RES_IS0", "AUT_IS0", "PHY_IS0", "FAM_IS0", "FRI_IS0", "ROM_IS0", "PSY_IS0")
-    
-    ##Network comparison test
-    testing_NCT <- NCT(Network_df_IS1,Network_df_IS0,
-                       gamma = 0.5, it= 100, binary.data=FALSE, 
-      paired=FALSE, weighted=TRUE, AND=TRUE, abs=TRUE,
-      test.edges=FALSE, edges="all", 
-      progressbar=TRUE, make.positive.definite=TRUE,
-      p.adjust.methods="fdr", #c("none","holm","hochberg","hommel",
-                        #  "bonferroni","BH","BY","fdr"), 
-      test.centrality=TRUE, 
-      centrality=c("strength","expectedInfluence"),nodes="all",
-      communities=NULL,useCommunities="all",
-      #estimator, estimatorArgs = list(), 
-      verbose = TRUE
-      )
-    
+    # ##########
+    # #testing for significant differences
+    # ##########
+    # ##edge-weight
+    # EW_PLOT=plot(boot1, "edge", plot = "difference", onlyNonZero = FALSE, order = "id")
+    # print(EW_PLOT)
+    # EW_PLOT$data$upper_lower=ifelse(EW_PLOT$data$lower>0 & EW_PLOT$data$upper>0,1,0)
+    # tmp=tapply(EW_PLOT$data$upper_lower,
+    #        EW_PLOT$data$id2, 
+    #        function(x) sum(x>0))
+    # Quantif_EW_SUP=data.frame(edge_name=names(tmp), 
+    #                         n_edge=tmp)
+    # 
+    # ##centrality
+    # #differenceTest(boot1, 3, 8, "strength")
+    # print(plot(boot1, "strength",order = "id",onlyNonZero = FALSE))
+
 ```
